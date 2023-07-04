@@ -202,16 +202,4 @@ class HTMLServer:
 
     def serve_forever(self):
         asyncio.run(self.start())
-
-
-if __name__=="__main__":
-    def asd(_):
-        return server.render_template_file("index.html", page_title="Sajt")
-
-    server = HTMLServer("localhost", 8080, root_path=path.dirname(__file__), logger=Logger("test.log", log_to_console=True))
-    server.add_url_rule("/", asd)
-    server.serve_forever()
-    sleep(0.5)
-    input("..")
-    server.stop()
-    exit(0)
+        

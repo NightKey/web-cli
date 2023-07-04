@@ -9,7 +9,7 @@ finally:
         inspect.getfile(inspect.currentframe())))
     parentdir = os.path.dirname(currentdir)
     sys.path.insert(0, parentdir)
-    from WEB_CLI import WebCLIServer, Settings, UserCommand
+    from smdb_web_interface import WebCLIServer, Settings, UserCommand
     parentdir = os.path.dirname(parentdir)
     sys.path.insert(0, parentdir)
 
