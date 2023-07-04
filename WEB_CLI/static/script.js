@@ -1,9 +1,10 @@
-
 setInterval(
     function() {
         $.getJSON(
             "/fetch",
-            function(data) {
+            function(_data, _, _) {
+                let data = _data["payload"];
+                console.log(data);
                 let content = $("#content");
                 let userValue = "";
                 if (content.find('#FIX_input')[0] !== undefined) {

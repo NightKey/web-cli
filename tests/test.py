@@ -9,14 +9,14 @@ finally:
         inspect.getfile(inspect.currentframe())))
     parentdir = os.path.dirname(currentdir)
     sys.path.insert(0, parentdir)
-    from WEB_CLI import Server, Settings, UserCommand
+    from WEB_CLI import WebCLIServer, Settings, UserCommand
     parentdir = os.path.dirname(parentdir)
     sys.path.insert(0, parentdir)
 
 
 class MockClass:
     def __init__(self):
-        self.cli = Server(Settings(), self.mock_backend)
+        self.cli = WebCLIServer(Settings(), self.mock_backend)
 
     def start_cli(self):
         self.cli.start()
@@ -33,11 +33,11 @@ class MockClass:
         if (input.command == "start"):
             threading.Thread(target=self.logger).start()
         sleep(1)
-        self.cli.push_data(input, "Answer 1")
+        self.cli.push_data("Answer 1", input)
         sleep(1)
-        self.cli.push_data(input, "Answer 2")
+        self.cli.push_data("Answer 2", input)
         sleep(1)
-        self.cli.push_data(input, "Answer 3")
+        self.cli.push_data("Answer 3", input)
 
 
 if __name__ == "__main__":

@@ -1,10 +1,8 @@
-from typing import Callable, Dict, Optional, Union, Any, List
+import asyncio
+from typing import Callable, Dict, Optional, Union, Any
 from os import path
 from smdb_logger import Logger, LEVEL
-import http.server
-import socketserver
-
-
+from json import dumps
 from threading import Thread
 from time import sleep, perf_counter_ns
 
@@ -36,11 +34,48 @@ get_rules: Dict[str, Callable[[Dict[str, str]], None]] = {}
 put_rules: Dict[str, Callable[[bytes], None]] = {}
 title: str = None
 html_template: str = "<html><header><link rel='stylesheet' href='/static/style.css' /><title>{title}</title></header><body>{content}</body></html>"
-http_header: str = "HTTP/1.0 {response_code}\nContent-Length: {length}\nContent-Type: {content_type};\nServer-Timing: {timing}\nKeep-Alive: timeout=100, max=1000\r\n\r\n{payload}"
+http_header: str = "{version_info} {response_code}\r\nContent-Length: {length}\r\nContent-Type: {content_type};\r\nServer-Timing: {timing}\r\n\r\n"
 cwd: str = "."
 
-class HTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
+class HTTPRequestHandler():
+    def __init__(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter, logger: Logger = None) -> None:
+        self.reader = reader
+        self.writer = writer
+        self.headers: Dict[str, str] = None
+        self.path: str = ""
+        self.path_params: str = ""
+        self.data: str = ""
+        self.version: str = "HTTP/1.0"
+        self.logger = logger
+
+    async def handle_request(self):
+        try:
+            tmp = await self.reader.readuntil("\r\n\r\n".encode())
+            tmp = tmp.decode().split("\r\n")
+            method, tmp_path, _ = tmp[0].split(" ")
+            tmp_path = tmp_path.split("?")[0]
+            self.path_params = {item.split("=")[0]: item.split("=")[1] for item in tmp_path[-1].split("&") if len(item.split("=")) == 2}
+            self.path = tmp_path[0]
+            self.headers = {head.split(": ")[0]: head.split(": ")[1] for head in tmp[1:] if head != ''}
+            if (self.logger):
+                self.logger.debug(f"Headers retrived: {self.headers}")
+            if ("Content-Length" in self.headers):
+                self.data = await self.reader.read(int(self.headers["Content-Length"]))
+                if (self.logger):
+                    self.logger.debug(f"Data retrived: {self.data}")
+            if (method == "GET"):
+                self.do_GET()
+            elif (method == "PUT"):
+                put_th = Thread(target=self.do_PUT)
+                put_th.start()
+        except Exception as ex :
+            html_file = html_template.format(title=title, content=ex)
+            response_code = InternalServerError
+            self.send_message(response_code, html_file)
+
     def __404__(self, do_get: Timer) -> None:
+        if (self.logger):
+            self.logger.debug("Sending 404 page.")
         _404_time = Timer()
         _404_file = html_template.format(title=title, content="404 NOT FOUND")
         _404_time.stop()
@@ -48,38 +83,57 @@ class HTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
         self.send_message(NotFound, _404_file, f"full;dur={do_get}, process;dur={_404_time}")
 
     @staticmethod
-    def render_static_file(cwd: str, name: str) -> str:
-        with open(path.join(cwd, HTMLServer.STATIC_FOLDER, name), "r") as fp:
+    def render_static_file(cwd: str, name: str) -> bytes:
+        static_file = path.join(cwd, HTMLServer.STATIC_FOLDER, name)
+        if not path.exists(static_file):
+            return None
+        with open(static_file, "rb") as fp:
             return fp.read(-1)
 
-    def send_message(self, response_code: ResponseCode, payload: Union[str, Dict[Any, Any], List[Any]], timing: str = "") -> None:
+    def send_message(self, response_code: ResponseCode, payload: Union[str, Dict[Any, Any], bytes], timing: str = "") -> None:
         content_type = "text/html"
-        if isinstance(payload, (dict, list)):
+        if isinstance(payload, (dict)):
             content_type = "application/json"
-        header = http_header.format(response_code=response_code, content_type=content_type, length=len(str(payload)), payload=payload, timing=timing).encode()
-        self.wfile.write(header)
+            payload = dumps(payload)
+        if isinstance(payload, bytes):
+            content_type = "image/ico"
+        data = http_header.format(version_info=self.version, response_code=response_code, content_type=content_type, length=len(payload), timing=timing).encode()
+        if (self.logger):
+            self.logger.debug(f"Sending data: {data.decode()} with payload: {payload}")
+        self.writer.write(data)
+        self.writer.write(payload.encode() if not isinstance(payload, bytes) else payload)
 
     def do_GET(self) -> None:
         do_get = Timer()
         if (self.path in get_rules.keys()):
             get_rules_time = Timer()
-            path_params = {item.split("=")[0]: item.split("=")[1] for item in self.path.split("?")[-1].split("&") if len(item.split("=")) == 2}
             html_file = ""
             response_code: ResponseCode = None
+            if (self.logger):
+                self.logger.debug(f"Calling GET {self.path} with params: {self.path_params}")
             try:
-                html_file = get_rules[self.path](path_params)
+                html_file = get_rules[self.path](self.path_params)
                 response_code = Ok
             except Exception as ex:
                 html_file = html_template.format(title=title, content=ex)
                 response_code = InternalServerError
+                if (self.logger):
+                    self.logger.error(f"Exception: {ex}")
             finally:
                 do_get.stop()
                 get_rules_time.stop()
                 self.send_message(response_code, html_file, f"full;dur={do_get}, process;dur={get_rules_time}")
                 return
-        if self.path.startswith("/static"):
+        if self.path.startswith("/static") or self.path == "/favicon.ico":
+            if (self.logger):
+                self.logger.debug(f"Serving static file from path: {self.path}")
             static = Timer()
             html_file = HTTPRequestHandler.render_static_file(cwd, self.path.split("/")[-1])
+            if ("image" not in self.headers["Accept"]):
+                html_file = html_file.decode()
+            if html_file is None:
+                self.__404__(do_get)
+                return
             static.stop()
             do_get.stop()
             self.send_message(Ok, html_file, f"full;dur={do_get}, process;dur={static}")
@@ -91,13 +145,12 @@ class HTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
         if (self.path not in put_rules.keys()):
             self.__404__(do_put)
             return
-        data = self.rfile.read(int(self.headers.get("Content-Length")))
+        if (self.logger):
+            self.logger.debug(f"Calling PUT {self.path}")
+        put_rules[self.path](self.data)
         do_put.stop()
         self.send_message(Ok, "", f"full={do_put}")
-        try:
-            put_rules[self.path](data)
-        except Exception as ex:
-            self.send_message(InternalServerError, ex)
+            
 
 class HTMLServer:
     TEMPLATE_FOLDER = "templates"
@@ -109,8 +162,8 @@ class HTMLServer:
         self.host = host
         self.port = port
         self.logger = logger
-        self.handler = HTTPRequestHandler
-        self.httpd: socketserver.TCPServer = None
+        self.handler: HTTPRequestHandler = HTTPRequestHandler
+        self.server = None
         title = _title
         cwd = root_path
 
@@ -120,7 +173,7 @@ class HTMLServer:
         self.logger.log(log_level, data)
 
     def render_static_file(self, name: str) -> str:
-        return HTTPRequestHandler.render_static_file(cwd, name)
+        return HTTPRequestHandler.render_static_file(cwd, name).decode()
 
     def render_template_file(self, name: str, **kwargs) -> str:
         data: str = ""
@@ -136,23 +189,42 @@ class HTMLServer:
         if (protocol == "PUT"):
             put_rules[rule] = callback
 
-    def start(self):
-        self.httpd = socketserver.TCPServer(
-            (self.host, self.port), self.handler)
-        self.try_log(f"Started to serve on {self.host}:{self.port}")
-        self.httpd.serve_forever()
+    async def handle_client(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
+        addr = writer.get_extra_info('peername')
+        self.try_log(f'Accepted connection from {addr[0]}:{addr[1]}')
+        handler = self.handler(reader, writer, self.logger)
+        await handler.handle_request()
+
+    async def start(self):
+        self.server = await asyncio.start_server(
+            self.handle_client,
+            self.host,
+            self.port
+        )
+        self.try_log(f'Serving on {self.host}:{self.port}')
+        async with self.server:
+            await self.server.serve_forever()
 
     def stop(self):
-        self.try_log("Stopping server")
-        self.httpd.shutdown()
+        try:
+            self.try_log("Stopping server")
+            if self.server:
+                self.server.close()
+        except:
+            pass
+
+    def serve_forever(self):
+        asyncio.run(self.start())
 
 
 if __name__=="__main__":
+    def asd(_):
+        return server.render_template_file("index.html", page_title="Sajt")
+
     server = HTMLServer("localhost", 8080, root_path=path.dirname(__file__), logger=Logger("test.log", log_to_console=True))
-    server_th = Thread(target=server.start)
-    server_th.start()
+    server.add_url_rule("/", asd)
+    server.serve_forever()
     sleep(0.5)
     input("..")
     server.stop()
-    server_th.join()
     exit(0)
