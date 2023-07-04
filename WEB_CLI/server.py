@@ -5,6 +5,7 @@ from smdb_logger import Logger, LEVEL
 from json import dumps
 from threading import Thread
 from time import sleep, perf_counter_ns
+from . import templates, static
 
 class ResponseCode():
     def __init__(self, value: int, name: str):
@@ -53,7 +54,7 @@ class HTTPRequestHandler():
             tmp = await self.reader.readuntil("\r\n\r\n".encode())
             tmp = tmp.decode().split("\r\n")
             method, tmp_path, _ = tmp[0].split(" ")
-            tmp_path = tmp_path.split("?")[0]
+            tmp_path = tmp_path.split("?")
             self.path_params = {item.split("=")[0]: item.split("=")[1] for item in tmp_path[-1].split("&") if len(item.split("=")) == 2}
             self.path = tmp_path[0]
             self.headers = {head.split(": ")[0]: head.split(": ")[1] for head in tmp[1:] if head != ''}
@@ -83,12 +84,8 @@ class HTTPRequestHandler():
         self.send_message(NotFound, _404_file, f"full;dur={do_get}, process;dur={_404_time}")
 
     @staticmethod
-    def render_static_file(cwd: str, name: str) -> bytes:
-        static_file = path.join(cwd, HTMLServer.STATIC_FOLDER, name)
-        if not path.exists(static_file):
-            return None
-        with open(static_file, "rb") as fp:
-            return fp.read(-1)
+    def render_static_file(name: str) -> bytes:
+        return static.__dict__[".".join(name.split(".")[:-1])]
 
     def send_message(self, response_code: ResponseCode, payload: Union[str, Dict[Any, Any], bytes], timing: str = "") -> None:
         content_type = "text/html"
@@ -128,9 +125,7 @@ class HTTPRequestHandler():
             if (self.logger):
                 self.logger.debug(f"Serving static file from path: {self.path}")
             static = Timer()
-            html_file = HTTPRequestHandler.render_static_file(cwd, self.path.split("/")[-1])
-            if ("image" not in self.headers["Accept"]):
-                html_file = html_file.decode()
+            html_file = HTTPRequestHandler.render_static_file(self.path.split("/")[-1])
             if html_file is None:
                 self.__404__(do_get)
                 return
@@ -153,9 +148,6 @@ class HTTPRequestHandler():
             
 
 class HTMLServer:
-    TEMPLATE_FOLDER = "templates"
-    STATIC_FOLDER = "static"
-
     def __init__(self, host: str, port: int, root_path: str = ".", logger: Optional[Logger] = None, _title: str = "HTML Server"):
         global title
         global cwd
@@ -172,13 +164,8 @@ class HTMLServer:
             return
         self.logger.log(log_level, data)
 
-    def render_static_file(self, name: str) -> str:
-        return HTTPRequestHandler.render_static_file(cwd, name).decode()
-
     def render_template_file(self, name: str, **kwargs) -> str:
-        data: str = ""
-        with open(path.join(cwd, HTMLServer.TEMPLATE_FOLDER, name), "r") as fp:
-            data = fp.read(-1)
+        data: str = templates.__dict__[name.replace(".html", "")]
         for template, value in kwargs.items():
             data = data.replace("{{ " + template + " }}", value)
         return data
