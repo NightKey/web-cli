@@ -13,7 +13,7 @@ settings = Settings(name="Example page")
 server = WebCLIServer(settings, backend)
 
 fun backend(user_command: UserCommand) -> None:
-    // do stuff here
+    # do stuff here
 ```
 
 After, start the server with server.start().
