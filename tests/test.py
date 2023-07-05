@@ -26,8 +26,7 @@ class MockClass:
 
     def logger(self):
         sleep(30)
-        self.cli.push_data(None, [
-            "Multi line command\nTesting line formatting", "And is a list"])
+        self.cli.push_data(["Multi line command\nTesting line formatting", "And is a list"])
 
     def mock_backend(self, input: UserCommand) -> None:
         if (input.command == "start"):
@@ -43,5 +42,7 @@ class MockClass:
 if __name__ == "__main__":
     mock = MockClass()
     mock.start_cli()
-    input("Server running")
+    print("Server started")
+    mock.logger()    
+    input("press return to exit")
     mock.stop_cli()

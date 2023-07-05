@@ -15,8 +15,10 @@ script = r"""setInterval(
                 console.log(data);
                 for (let index in data) {
                     let block = data[index];
-                    blocks += "<div id=\"" + block["hash"] + "\">\n";
-                    blocks += "<div class=\"user\">" + consolName + "> <input type=\"text\" id=\"" + block["hash"] + "_input\" value=\"" + block["command"] + "\" readonly></div>";
+                    if (block["command"] === "") {
+                        blocks += "<div id=\"" + block["hash"] + "\">\n";
+                        blocks += "<div class=\"user\">" + consolName + "> <input type=\"text\" id=\"" + block["hash"] + "_input\" value=\"" + block["command"] + "\" readonly></div>";
+                    }
                     blocks += "<div class=\"response\">";
                     for (let index in block["response"]) {
                         let line = block["response"][index];

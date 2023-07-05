@@ -28,6 +28,8 @@ class WebCLIServer():
 
     def push_data(self, response: Union[str, List[str]], command: Optional[UserCommand] = None) -> None:
         if (command is None):
+            if len(self.history.keys()) < 1:
+                self.history[UserCommand("")] = []
             command = list(self.history.keys())[-1]
         if (isinstance(response, str)):
             self.history[command].append(response)
