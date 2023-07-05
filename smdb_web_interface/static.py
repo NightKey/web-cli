@@ -15,7 +15,7 @@ script = r"""setInterval(
                 console.log(data);
                 for (let index in data) {
                     let block = data[index];
-                    if (block["command"] === "") {
+                    if (block["command"] !== "") {
                         blocks += "<div id=\"" + block["hash"] + "\">\n";
                         blocks += "<div class=\"user\">" + consolName + "> <input type=\"text\" id=\"" + block["hash"] + "_input\" value=\"" + block["command"] + "\" readonly></div>";
                     }
